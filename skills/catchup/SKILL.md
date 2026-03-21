@@ -8,7 +8,10 @@ Reconstruct my working context. Read the following in order and synthesize a sta
 1. **Git state**: Run `git log --oneline -20` and `git status`. Note current branch, recent commits, staged/unstaged changes.
 2. **Active plan**: Read `ai-workspace/plans/` — find the most recently modified non-.done.md plan file. Summarize: objective, current phase, next action, open blockers.
 3. **Project memory**: Read `ai-workspace/MEMORY.md`. Note anything flagged as in-progress or blocking.
-4. **Knowledge graph**: Search Basic Memory via MCP for recent entries related to the current branch name.
+4. **Knowledge graph**: Search Basic Memory vault via MCP for:
+   a. Notes tagged with current project name
+   b. Recent notes (last 7 days) for cross-project patterns
+   c. Notes linked to the current branch name or feature area
 5. **Open PRs**: Run `gh pr list --state open` and `gh pr list --state draft`. Note PRs awaiting review.
 6. **HANDOFF.md** (if present): Read it. Note dispatched task, target agent, expected output.
 
