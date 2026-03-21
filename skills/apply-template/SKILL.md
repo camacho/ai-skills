@@ -153,7 +153,7 @@ For each file in `smart_merge`, read BOTH the template version and the target ve
    - "Run `$TEMPLATE_SOURCE/dotfiles/sync.sh push` to deploy user-level configs (if not done above)"
    - "Review .claude/settings.json hooks and adjust paths for your environment"
 
-6. **Summary:** print a list of all files created, merged, and skipped.
+7. **Summary:** print a list of all files created, merged, and skipped.
 
 ---
 
