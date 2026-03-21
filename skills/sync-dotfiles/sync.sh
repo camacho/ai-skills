@@ -4,11 +4,11 @@ set -euo pipefail
 # sync.sh — Sync user-level Claude/Codex configs between this repo and ~/.claude / ~/.codex
 #
 # Usage:
-#   ./dotfiles/sync.sh push          Merge repo → home directory (repo wins on conflicts)
-#   ./dotfiles/sync.sh pull             Merge home directory → repo (home wins on conflicts)
-#   ./dotfiles/sync.sh diff             Show differences between repo and home directory
-#   ./dotfiles/sync.sh status           Show which files exist where
-#   ./dotfiles/sync.sh skills-push   Install skills via npx (default: camacho/ai-skills)
+#   ./skills/sync-dotfiles/sync.sh push        Merge repo → home directory (repo wins on conflicts)
+#   ./skills/sync-dotfiles/sync.sh pull        Merge home directory → repo (home wins on conflicts)
+#   ./skills/sync-dotfiles/sync.sh diff        Show differences between repo and home directory
+#   ./skills/sync-dotfiles/sync.sh status      Show which files exist where
+#   ./skills/sync-dotfiles/sync.sh skills-push Install skills via npx (default: camacho/ai-skills)
 #
 # Governance files (settings.json, config.toml) are SEMANTICALLY MERGED:
 #   - permissions.deny/allow arrays: union (both sides preserved, deduplicated)
