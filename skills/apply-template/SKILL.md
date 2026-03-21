@@ -333,7 +333,7 @@ If `.github/workflows/claude.yml` or `claude-code-review.yml` existed before tem
 
 ### 9. Context exclusions (.claudeignore, .codexignore)
 
-- `.claudeignore`: Already union-merged in Phase 3 (.gitignore merge). But `.claudeignore` is separate — check if target has one. If so, union-merge (same strategy as .gitignore). If not, copy template version.
+- `.claudeignore`: Handle separately from `.gitignore`. Check if target has one. If so, union-merge (same strategy as `.gitignore`). If not, copy template version.
 - `.codexignore`: If present, preserve. Template doesn't provide one.
 
 ### Summary prompt
