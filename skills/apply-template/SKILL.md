@@ -28,7 +28,7 @@ Run `git status --porcelain`. If there are uncommitted changes, warn the user an
 4. If all fail, tell the user and stop
 
 ### Read manifest
-Read `apply-template.manifest.json` from the template source. This classifies every file as `copy_if_absent`, `smart_merge`, or `skip`.
+Read `apply-template.manifest.json` from the template source directory. This classifies every file as `copy_if_absent`, `smart_merge`, or `skip`.
 
 ### Scan target
 Check which `copy_if_absent` and `smart_merge` files already exist in the current repo (cwd).

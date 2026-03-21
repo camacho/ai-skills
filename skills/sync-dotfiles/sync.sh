@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# sync.sh — Sync user-level Claude/Codex configs between this repo and ~/.claude / ~/.codex
+# sync.sh — Sync user-level Claude/Codex configs between ai-env dotfiles/ and ~/.claude / ~/.codex
 #
-# Usage:
-#   ./skills/sync-dotfiles/sync.sh push        Merge repo → home directory (repo wins on conflicts)
-#   ./skills/sync-dotfiles/sync.sh pull        Merge home directory → repo (home wins on conflicts)
-#   ./skills/sync-dotfiles/sync.sh diff        Show differences between repo and home directory
-#   ./skills/sync-dotfiles/sync.sh status      Show which files exist where
-#   ./skills/sync-dotfiles/sync.sh skills-push Install skills via npx (default: camacho/ai-skills)
+# Invoked via the /sync-dotfiles skill or directly:
+#   sync.sh push        Merge repo → home directory (repo wins on conflicts)
+#   sync.sh pull        Merge home directory → repo (home wins on conflicts)
+#   sync.sh diff        Show differences between repo and home directory
+#   sync.sh status      Show which files exist where
+#   sync.sh skills-push Install skills via npx (default: camacho/ai-skills)
 #
 # Governance files (settings.json, config.toml) are SEMANTICALLY MERGED:
 #   - permissions.deny/allow arrays: union (both sides preserved, deduplicated)
@@ -16,13 +16,65 @@ set -euo pipefail
 #   - codex profiles: union (source wins on collision for scalar values)
 #   - all other keys: source wins on conflict
 #
-# Non-governance files (hooks, skills) are copied directly.
+# CLAUDE.md is SECTION-MERGED:
+#   - Sections keyed by ## heading: union (all sections from both sides kept)
+#   - Same heading in both sides: source wins
+#   - Preamble (content before first ##): source wins
+#
+# Non-governance files (hooks, skills, agents, commands, rules) are copied directly.
 #
 # This script NEVER touches session data, projects/, backups/, or plugins/.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_SRC="$SCRIPT_DIR/claude"
-CODEX_SRC="$SCRIPT_DIR/codex"
+
+# --- AI_ENV_ROOT discovery ---
+# Find the ai-env repo where dotfiles/ lives
+resolve_ai_env_root() {
+  # 1. Already set via env var
+  if [[ -n "${AI_ENV_ROOT:-}" ]] && [[ -d "$AI_ENV_ROOT/dotfiles" ]]; then
+    echo "$AI_ENV_ROOT"
+    return 0
+  fi
+
+  # 2. Script is inside ai-env repo (e.g., running from dotfiles/sync.sh symlink)
+  local candidate
+  candidate="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "$candidate" ]] && [[ -d "$candidate/dotfiles" ]]; then
+    echo "$candidate"
+    return 0
+  fi
+
+  # 3. Known local path
+  if [[ -d "$HOME/projects/camacho/ai-env/dotfiles" ]]; then
+    echo "$HOME/projects/camacho/ai-env"
+    return 0
+  fi
+
+  # 4. Clone from GitHub
+  local tmp_dir="/tmp/ai-env-dotfiles-$$"
+  if git clone --depth 1 https://github.com/camacho/ai-env.git "$tmp_dir" 2>/dev/null; then
+    echo "$tmp_dir"
+    return 0
+  fi
+
+  # 5. Give up
+  echo ""
+  return 1
+}
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+AI_ENV_ROOT="$(resolve_ai_env_root)" || {
+  echo -e "${RED}error${NC}  Cannot find ai-env repo. Set AI_ENV_ROOT to your ai-env clone path." >&2
+  exit 1
+}
+
+CLAUDE_SRC="$AI_ENV_ROOT/dotfiles/claude"
+CODEX_SRC="$AI_ENV_ROOT/dotfiles/codex"
 CLAUDE_DST="$HOME/.claude"
 CODEX_DST="$HOME/.codex"
 
@@ -32,22 +84,18 @@ DEFAULT_SKILLS_REPO="camacho/ai-skills"
 # --- File registry ---
 # Governance files get semantic merge; everything else gets simple copy.
 # Format: "relative/path:merge_strategy"
-#   merge_strategy: "settings" | "codex_config" | "copy"
+#   merge_strategy: "settings" | "codex_config" | "claude_md" | "copy"
+# Directory globs: if the path ends with "/", all .md files in that dir are synced with the given strategy.
 CLAUDE_REGISTRY=(
   "settings.json:settings"
-  "hooks/stop-hook-git-check.sh:copy"
-  "skills/session-start-hook/SKILL.md:copy"
+  "CLAUDE.md:claude_md"
+  "commands/catchup.md:copy"
+  "commands/reflect.md:copy"
 )
 
 CODEX_REGISTRY=(
   "config.toml:codex_config"
 )
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
 
 usage() {
   echo "Usage: $0 {push|pull|diff|status|skills-push}"
@@ -267,6 +315,115 @@ merge_configs(sys.argv[1], sys.argv[2], sys.argv[3])
 PYEOF
 }
 
+# --- CLAUDE.md section merge ---
+# Union-merges ## sections. Source wins on collision (same heading). Preamble: source wins.
+# Uses awk — no external dependencies beyond bash builtins.
+# — Claude claude-sonnet-4-6: awk-based section merge.
+merge_claude_md() {
+  local source="$1" target="$2" output="$3"
+
+  # If target doesn't exist, just copy source
+  if [[ ! -f "$target" ]]; then
+    cp "$source" "$output"
+    return 0
+  fi
+
+  # If source doesn't exist, keep target
+  if [[ ! -f "$source" ]]; then
+    cp "$target" "$output"
+    return 0
+  fi
+
+  # We parse each file into named sections keyed by "## Heading" text.
+  # All sections from both sides are emitted (union). Source wins on collision.
+  awk '
+  BEGIN {
+    src = ARGV[1]
+    dst = ARGV[2]
+    out = ARGV[3]
+
+    # Parse source
+    src_idx[0] = 0
+    src_cur = "__preamble__"
+    src_buf = ""
+    while ((getline line < src) > 0) {
+      if (line ~ /^## /) {
+        src_sections[src_cur] = src_buf
+        if (!(src_cur in src_order_set)) {
+          src_idx[0]++
+          src_order[src_idx[0]] = src_cur
+          src_order_set[src_cur] = 1
+        }
+        src_cur = line
+        src_buf = line "\n"
+      } else {
+        src_buf = src_buf line "\n"
+      }
+    }
+    close(src)
+    src_sections[src_cur] = src_buf
+    if (!(src_cur in src_order_set)) {
+      src_idx[0]++
+      src_order[src_idx[0]] = src_cur
+      src_order_set[src_cur] = 1
+    }
+
+    # Parse destination
+    dst_idx[0] = 0
+    dst_cur = "__preamble__"
+    dst_buf = ""
+    while ((getline line < dst) > 0) {
+      if (line ~ /^## /) {
+        dst_sections[dst_cur] = dst_buf
+        if (!(dst_cur in dst_order_set)) {
+          dst_idx[0]++
+          dst_order[dst_idx[0]] = dst_cur
+          dst_order_set[dst_cur] = 1
+        }
+        dst_cur = line
+        dst_buf = line "\n"
+      } else {
+        dst_buf = dst_buf line "\n"
+      }
+    }
+    close(dst)
+    dst_sections[dst_cur] = dst_buf
+    if (!(dst_cur in dst_order_set)) {
+      dst_idx[0]++
+      dst_order[dst_idx[0]] = dst_cur
+      dst_order_set[dst_cur] = 1
+    }
+
+    # Build merged order: dst sections first, then src-only sections appended
+    merged_idx = 0
+    for (i = 1; i <= dst_idx[0]; i++) {
+      k = dst_order[i]
+      merged_idx++
+      merged_order[merged_idx] = k
+      merged_set[k] = 1
+    }
+    for (i = 1; i <= src_idx[0]; i++) {
+      k = src_order[i]
+      if (!(k in merged_set)) {
+        merged_idx++
+        merged_order[merged_idx] = k
+      }
+    }
+
+    # Write output: source wins on collision (if key in src, use src; else use dst)
+    for (i = 1; i <= merged_idx; i++) {
+      k = merged_order[i]
+      if (k in src_sections) {
+        printf "%s", src_sections[k] > out
+      } else {
+        printf "%s", dst_sections[k] > out
+      }
+    }
+    close(out)
+  }
+  ' "$source" "$target" "$output"
+}
+
 # --- Dispatch: pick the right sync strategy ---
 sync_entry() {
   local src="$1" dst="$2" label="$3" strategy="$4"
@@ -301,6 +458,18 @@ sync_entry() {
         echo -e "  ${RED}fail${NC}  $label (merge failed, file unchanged)"
       fi
       ;;
+    claude_md)
+      local tmp
+      tmp=$(mktemp)
+      if merge_claude_md "$src" "$dst" "$tmp"; then
+        mkdir -p "$(dirname "$dst")"
+        mv "$tmp" "$dst"
+        echo -e "  ${GREEN}merge${NC}  $label (section merge: ## headings union, source wins collision)"
+      else
+        rm -f "$tmp"
+        echo -e "  ${RED}fail${NC}  $label (merge failed, file unchanged)"
+      fi
+      ;;
     copy)
       copy_file "$src" "$dst"
       echo -e "  ${GREEN}copy${NC}  $label"
@@ -318,6 +487,75 @@ parse_entry() {
   FILE_STRATEGY="${entry##*:}"
 }
 
+# --- Sync a single registry entry, expanding directory globs if path ends with "/" ---
+# Usage: sync_registry_entry <src_base> <dst_base> <file_path> <strategy>
+sync_registry_entry() {
+  local src_base="$1" dst_base="$2" file_path="$3" strategy="$4"
+
+  if [[ "$file_path" == */ ]]; then
+    # Directory glob: sync all .md files found in whichever side has the directory.
+    # During push: iterate repo (src_base); during pull: iterate home (dst_base for pull = src).
+    # We collect files from both sides to handle missing-in-one case gracefully.
+    local dir="${file_path%/}"
+    local seen=()
+    # Collect from src side
+    if [[ -d "$src_base/$dir" ]]; then
+      while IFS= read -r -d '' f; do
+        local rel="${f#$src_base/$dir/}"
+        seen+=("$rel")
+      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+    fi
+    # Collect from dst side (files that may not be in src yet)
+    if [[ -d "$dst_base/$dir" ]]; then
+      while IFS= read -r -d '' f; do
+        local rel="${f#$dst_base/$dir/}"
+        # Only add if not already seen
+        local already=false
+        for s in "${seen[@]:-}"; do [[ "$s" == "$rel" ]] && already=true && break; done
+        [[ "$already" == false ]] && seen+=("$rel")
+      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+    fi
+    for rel in "${seen[@]:-}"; do
+      if [[ -n "$rel" ]]; then
+        sync_entry "$src_base/$dir/$rel" "$dst_base/$dir/$rel" "$dir/$rel" "$strategy"
+      fi
+    done
+  else
+    sync_entry "$src_base/$file_path" "$dst_base/$file_path" "$file_path" "$strategy"
+  fi
+}
+
+# --- Expand a registry entry into concrete file paths (handles directory globs) ---
+# Populates EXPANDED_FILES array with relative paths.
+expand_entry() {
+  local src_base="$1" dst_base="$2" file_path="$3"
+  EXPANDED_FILES=()
+  if [[ "$file_path" == */ ]]; then
+    local dir="${file_path%/}"
+    local seen=()
+    if [[ -d "$src_base/$dir" ]]; then
+      while IFS= read -r -d '' f; do
+        seen+=("$dir/${f#$src_base/$dir/}")
+      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+    fi
+    if [[ -d "$dst_base/$dir" ]]; then
+      while IFS= read -r -d '' f; do
+        local rel="$dir/${f#$dst_base/$dir/}"
+        local already=false
+        for s in "${seen[@]:-}"; do [[ "$s" == "$rel" ]] && already=true && break; done
+        [[ "$already" == false ]] && seen+=("$rel")
+      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+    fi
+    for rel in "${seen[@]:-}"; do
+      if [[ -n "$rel" ]]; then
+        EXPANDED_FILES+=("$rel")
+      fi
+    done
+  else
+    EXPANDED_FILES=("$file_path")
+  fi
+}
+
 # --- Commands ---
 
 cmd_push() {
@@ -327,14 +565,14 @@ cmd_push() {
   echo "Claude (~/.claude/):"
   for entry in "${CLAUDE_REGISTRY[@]}"; do
     parse_entry "$entry"
-    sync_entry "$CLAUDE_SRC/$FILE_PATH" "$CLAUDE_DST/$FILE_PATH" "$FILE_PATH" "$FILE_STRATEGY"
+    sync_registry_entry "$CLAUDE_SRC" "$CLAUDE_DST" "$FILE_PATH" "$FILE_STRATEGY"
   done
 
   echo ""
   echo "Codex (~/.codex/):"
   for entry in "${CODEX_REGISTRY[@]}"; do
     parse_entry "$entry"
-    sync_entry "$CODEX_SRC/$FILE_PATH" "$CODEX_DST/$FILE_PATH" "$FILE_PATH" "$FILE_STRATEGY"
+    sync_registry_entry "$CODEX_SRC" "$CODEX_DST" "$FILE_PATH" "$FILE_STRATEGY"
   done
 
   # Install skills from AI_SKILLS_REPO (defaults to camacho/ai-skills, set AI_SKILLS_REPO= to skip)
@@ -345,10 +583,10 @@ cmd_push() {
       echo -e "${CYAN}Installing skills from $skills_repo via npx...${NC}"
       if npx skills install "$skills_repo" --scope personal; then
         echo -e "  ${GREEN}ok${NC}  Skills installed from $skills_repo"
-        echo "  Run './dotfiles/sync.sh pull' to capture installed skills to the repo."
+        echo "  Run 'sync.sh pull' to capture installed skills to the repo."
       else
         echo -e "  ${YELLOW}warn${NC}  Skills install failed (non-fatal)"
-        echo "  Retry manually: ./dotfiles/sync.sh skills-push"
+        echo "  Retry manually: sync.sh skills-push"
       fi
     else
       echo -e "  ${YELLOW}warn${NC}  npx not found — skipping skills install"
@@ -372,11 +610,11 @@ cmd_skills_push() {
   fi
 
   echo -e "${CYAN}Installing skills from $skills_repo...${NC}"
-  echo "  (override with: AI_SKILLS_REPO=other/repo ./dotfiles/sync.sh skills-push)"
+  echo "  (override with: AI_SKILLS_REPO=other/repo sync.sh skills-push)"
   npx skills install "$skills_repo" --scope personal
   echo ""
   echo -e "${GREEN}Done.${NC} Skills installed to ~/.claude/skills/"
-  echo "  Capture to the repo: ./dotfiles/sync.sh pull && git add dotfiles/ && git commit -m 'chore: sync skills'"
+  echo "  Capture to the repo: sync.sh pull && git add dotfiles/ && git commit -m 'chore: sync skills'"
 }
 
 cmd_pull() {
@@ -386,14 +624,14 @@ cmd_pull() {
   echo "Claude (~/.claude/ → dotfiles/claude/):"
   for entry in "${CLAUDE_REGISTRY[@]}"; do
     parse_entry "$entry"
-    sync_entry "$CLAUDE_DST/$FILE_PATH" "$CLAUDE_SRC/$FILE_PATH" "$FILE_PATH" "$FILE_STRATEGY"
+    sync_registry_entry "$CLAUDE_DST" "$CLAUDE_SRC" "$FILE_PATH" "$FILE_STRATEGY"
   done
 
   echo ""
   echo "Codex (~/.codex/ → dotfiles/codex/):"
   for entry in "${CODEX_REGISTRY[@]}"; do
     parse_entry "$entry"
-    sync_entry "$CODEX_DST/$FILE_PATH" "$CODEX_SRC/$FILE_PATH" "$FILE_PATH" "$FILE_STRATEGY"
+    sync_registry_entry "$CODEX_DST" "$CODEX_SRC" "$FILE_PATH" "$FILE_STRATEGY"
   done
 
   echo ""
@@ -408,43 +646,50 @@ cmd_diff() {
   echo "Claude:"
   for entry in "${CLAUDE_REGISTRY[@]}"; do
     parse_entry "$entry"
-    local f="$FILE_PATH"
-    if [[ -f "$CLAUDE_SRC/$f" && -f "$CLAUDE_DST/$f" ]]; then
-      if ! diff -q "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" >/dev/null 2>&1; then
-        local strategy_label="copy"
-        [[ "$FILE_STRATEGY" == "settings" ]] && strategy_label="semantic merge"
-        [[ "$FILE_STRATEGY" == "codex_config" ]] && strategy_label="semantic merge"
-        echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: $strategy_label)"
-        diff --color=auto -u "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+    expand_entry "$CLAUDE_SRC" "$CLAUDE_DST" "$FILE_PATH"
+    for f in "${EXPANDED_FILES[@]:-}"; do
+      if [[ -z "$f" ]]; then continue; fi
+      if [[ -f "$CLAUDE_SRC/$f" && -f "$CLAUDE_DST/$f" ]]; then
+        if ! diff -q "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" >/dev/null 2>&1; then
+          local strategy_label="copy"
+          [[ "$FILE_STRATEGY" == "settings" ]] && strategy_label="semantic merge"
+          [[ "$FILE_STRATEGY" == "codex_config" ]] && strategy_label="semantic merge"
+          [[ "$FILE_STRATEGY" == "claude_md" ]] && strategy_label="section merge"
+          echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: $strategy_label)"
+          diff --color=auto -u "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+          has_diff=true
+        fi
+      elif [[ -f "$CLAUDE_SRC/$f" ]]; then
+        echo -e "  ${RED}missing in ~/.claude${NC}  $f"
+        has_diff=true
+      elif [[ -f "$CLAUDE_DST/$f" ]]; then
+        echo -e "  ${RED}missing in repo${NC}  $f"
         has_diff=true
       fi
-    elif [[ -f "$CLAUDE_SRC/$f" ]]; then
-      echo -e "  ${RED}missing in ~/.claude${NC}  $f"
-      has_diff=true
-    elif [[ -f "$CLAUDE_DST/$f" ]]; then
-      echo -e "  ${RED}missing in repo${NC}  $f"
-      has_diff=true
-    fi
+    done
   done
 
   echo ""
   echo "Codex:"
   for entry in "${CODEX_REGISTRY[@]}"; do
     parse_entry "$entry"
-    local f="$FILE_PATH"
-    if [[ -f "$CODEX_SRC/$f" && -f "$CODEX_DST/$f" ]]; then
-      if ! diff -q "$CODEX_SRC/$f" "$CODEX_DST/$f" >/dev/null 2>&1; then
-        echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: semantic merge)"
-        diff --color=auto -u "$CODEX_SRC/$f" "$CODEX_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+    expand_entry "$CODEX_SRC" "$CODEX_DST" "$FILE_PATH"
+    for f in "${EXPANDED_FILES[@]:-}"; do
+      if [[ -z "$f" ]]; then continue; fi
+      if [[ -f "$CODEX_SRC/$f" && -f "$CODEX_DST/$f" ]]; then
+        if ! diff -q "$CODEX_SRC/$f" "$CODEX_DST/$f" >/dev/null 2>&1; then
+          echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: semantic merge)"
+          diff --color=auto -u "$CODEX_SRC/$f" "$CODEX_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+          has_diff=true
+        fi
+      elif [[ -f "$CODEX_SRC/$f" ]]; then
+        echo -e "  ${RED}missing in ~/.codex${NC}  $f"
+        has_diff=true
+      elif [[ -f "$CODEX_DST/$f" ]]; then
+        echo -e "  ${RED}missing in repo${NC}  $f"
         has_diff=true
       fi
-    elif [[ -f "$CODEX_SRC/$f" ]]; then
-      echo -e "  ${RED}missing in ~/.codex${NC}  $f"
-      has_diff=true
-    elif [[ -f "$CODEX_DST/$f" ]]; then
-      echo -e "  ${RED}missing in repo${NC}  $f"
-      has_diff=true
-    fi
+    done
   done
 
   if [[ "$has_diff" = false ]]; then
@@ -457,23 +702,31 @@ cmd_status() {
   echo -e "${CYAN}Global config status${NC}"
   echo ""
 
-  printf "%-45s %-8s %-8s %-16s\n" "File" "Repo" "Home" "Merge Strategy"
-  printf "%-45s %-8s %-8s %-16s\n" "----" "----" "----" "--------------"
+  printf "%-50s %-8s %-8s %-16s\n" "File" "Repo" "Home" "Merge Strategy"
+  printf "%-50s %-8s %-8s %-16s\n" "----" "----" "----" "--------------"
 
   for entry in "${CLAUDE_REGISTRY[@]}"; do
     parse_entry "$entry"
-    local repo_status="--" home_status="--"
-    [[ -f "$CLAUDE_SRC/$FILE_PATH" ]] && repo_status="yes"
-    [[ -f "$CLAUDE_DST/$FILE_PATH" ]] && home_status="yes"
-    printf "%-45s %-8s %-8s %-16s\n" "claude/$FILE_PATH" "$repo_status" "$home_status" "$FILE_STRATEGY"
+    expand_entry "$CLAUDE_SRC" "$CLAUDE_DST" "$FILE_PATH"
+    for f in "${EXPANDED_FILES[@]:-}"; do
+      if [[ -z "$f" ]]; then continue; fi
+      local repo_status="--" home_status="--"
+      if [[ -f "$CLAUDE_SRC/$f" ]]; then repo_status="yes"; fi
+      if [[ -f "$CLAUDE_DST/$f" ]]; then home_status="yes"; fi
+      printf "%-50s %-8s %-8s %-16s\n" "claude/$f" "$repo_status" "$home_status" "$FILE_STRATEGY"
+    done
   done
 
   for entry in "${CODEX_REGISTRY[@]}"; do
     parse_entry "$entry"
-    local repo_status="--" home_status="--"
-    [[ -f "$CODEX_SRC/$FILE_PATH" ]] && repo_status="yes"
-    [[ -f "$CODEX_DST/$FILE_PATH" ]] && home_status="yes"
-    printf "%-45s %-8s %-8s %-16s\n" "codex/$FILE_PATH" "$repo_status" "$home_status" "$FILE_STRATEGY"
+    expand_entry "$CODEX_SRC" "$CODEX_DST" "$FILE_PATH"
+    for f in "${EXPANDED_FILES[@]:-}"; do
+      if [[ -z "$f" ]]; then continue; fi
+      local repo_status="--" home_status="--"
+      if [[ -f "$CODEX_SRC/$f" ]]; then repo_status="yes"; fi
+      if [[ -f "$CODEX_DST/$f" ]]; then home_status="yes"; fi
+      printf "%-50s %-8s %-8s %-16s\n" "codex/$f" "$repo_status" "$home_status" "$FILE_STRATEGY"
+    done
   done
 }
 

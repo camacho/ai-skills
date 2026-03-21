@@ -23,21 +23,25 @@ Map user intent to sync.sh subcommand:
 ## Running sync.sh
 
 The sync script is bundled with this skill at `sync.sh` (same directory as this SKILL.md).
+Run it directly — the script discovers the ai-env repo automatically:
 
 ```bash
-# Find this skill's directory
-SKILL_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
-# Or if invoked by Claude, the skill directory is known from the skill resolution
-"$SKILL_DIR/sync.sh" <subcommand>
+/path/to/skill/sync.sh <subcommand>
+```
+
+The script sets `AI_ENV_ROOT` automatically via the discovery chain below. To override:
+
+```bash
+AI_ENV_ROOT=/custom/path/to/ai-env /path/to/skill/sync.sh push
 ```
 
 ## AI_ENV_ROOT discovery
-The script needs to find the ai-env repo (where `dotfiles/` lives):
-1. If cwd is inside ai-env repo: use relative path
-2. If `$AI_ENV_ROOT` is set: use that
+The script discovers the ai-env repo (where `dotfiles/` lives) automatically:
+1. If `$AI_ENV_ROOT` is set and `$AI_ENV_ROOT/dotfiles` exists: use that
+2. If the script is inside an ai-env git repo (e.g., running from a symlink): use that repo root
 3. If `~/projects/camacho/ai-env` exists: use that
-4. If neither: clone `camacho/ai-env` to a temp dir
-5. If clone fails: tell user to set `AI_ENV_ROOT`
+4. Clone `camacho/ai-env` to a temp dir via GitHub
+5. If clone fails: error with instructions to set `AI_ENV_ROOT`
 
 ## After pull
 Show `git diff dotfiles/` and offer to commit: `chore: sync dotfiles`
