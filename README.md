@@ -13,6 +13,8 @@ ai-skills/
 
 Each skill is a folder under `skills/` containing a `SKILL.md` with YAML frontmatter (`name`, `description`) and markdown instructions. No other files are required — `npx skills` discovers skills automatically by scanning the `skills/` directory. Some skills bundle ancillary files (e.g. `sync.sh`) that the skill's instructions reference.
 
+Skills may include supporting files alongside `SKILL.md` (e.g., scripts, manifests). The folder name must still match the `name` field in `SKILL.md` frontmatter.
+
 ## Install a skill globally
 
 ```sh

@@ -28,7 +28,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- AI_ENV_ROOT discovery ---
-# Find the ai-env repo where dotfiles/ lives
+# Find the ai-env repo where dotfiles/ lives.
 resolve_ai_env_root() {
   # 1. Already set via env var
   if [[ -n "${AI_ENV_ROOT:-}" ]] && [[ -d "$AI_ENV_ROOT/dotfiles" ]]; then
@@ -50,7 +50,7 @@ resolve_ai_env_root() {
     return 0
   fi
 
-  # 4. Clone from GitHub
+  # 4. Clone from GitHub (temp dir — pull is blocked when this path is used)
   local tmp_dir="/tmp/ai-env-dotfiles-$$"
   if git clone --depth 1 https://github.com/camacho/ai-env.git "$tmp_dir" 2>/dev/null; then
     echo "$tmp_dir"
@@ -67,6 +67,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
+
+# BSD diff (macOS) does not support --color=auto; detect at runtime.
+if diff --color=auto /dev/null /dev/null 2>/dev/null; then
+  DIFF_CMD="diff --color=auto"
+else
+  DIFF_CMD="diff"
+fi
 
 AI_ENV_ROOT="$(resolve_ai_env_root)" || {
   echo -e "${RED}error${NC}  Cannot find ai-env repo. Set AI_ENV_ROOT to your ai-env clone path." >&2
@@ -508,20 +515,22 @@ sync_registry_entry() {
     local seen=()
     # Collect from src side
     if [[ -d "$src_base/$dir" ]]; then
-      while IFS= read -r -d '' f; do
-        local rel="${f#$src_base/$dir/}"
+      while IFS= read -r f; do
+        local rel
+        rel="$(basename "$f")"
         seen+=("$rel")
-      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
+      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" 2>/dev/null | sort)
     fi
     # Collect from dst side (files that may not be in src yet)
     if [[ -d "$dst_base/$dir" ]]; then
-      while IFS= read -r -d '' f; do
-        local rel="${f#$dst_base/$dir/}"
+      while IFS= read -r f; do
+        local rel
+        rel="$(basename "$f")"
         # Only add if not already seen
         local already=false
         for s in "${seen[@]:-}"; do [[ "$s" == "$rel" ]] && already=true && break; done
         [[ "$already" == false ]] && seen+=("$rel")
-      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
+      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" 2>/dev/null | sort)
     fi
     for rel in "${seen[@]:-}"; do
       if [[ -n "$rel" ]]; then
@@ -542,17 +551,17 @@ expand_entry() {
     local dir="${file_path%/}"
     local seen=()
     if [[ -d "$src_base/$dir" ]]; then
-      while IFS= read -r -d '' f; do
-        seen+=("$dir/${f#$src_base/$dir/}")
-      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
+      while IFS= read -r f; do
+        seen+=("$dir/$(basename "$f")")
+      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" 2>/dev/null | sort)
     fi
     if [[ -d "$dst_base/$dir" ]]; then
-      while IFS= read -r -d '' f; do
-        local rel="$dir/${f#$dst_base/$dir/}"
+      while IFS= read -r f; do
+        local rel="$dir/$(basename "$f")"
         local already=false
         for s in "${seen[@]:-}"; do [[ "$s" == "$rel" ]] && already=true && break; done
         [[ "$already" == false ]] && seen+=("$rel")
-      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
+      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" 2>/dev/null | sort)
     fi
     for rel in "${seen[@]:-}"; do
       if [[ -n "$rel" ]]; then
@@ -626,10 +635,10 @@ cmd_skills_push() {
 }
 
 cmd_pull() {
+  # Block pull when AI_ENV_ROOT is a temporary clone — changes would be written to /tmp and lost.
   if [[ "${AI_ENV_TEMP_CLONE:-false}" == true ]]; then
-    echo -e "${RED}error${NC}  Cannot pull to a temporary clone — changes would be lost on exit." >&2
-    echo "  Set AI_ENV_ROOT to your ai-env checkout and retry:" >&2
-    echo "    AI_ENV_ROOT=~/path/to/ai-env sync.sh pull" >&2
+    echo -e "${RED}error${NC}  Cannot pull to a temporary clone. Set AI_ENV_ROOT or clone ai-env locally." >&2
+    echo "  Example: export AI_ENV_ROOT=~/projects/camacho/ai-env" >&2
     exit 1
   fi
 
@@ -650,7 +659,7 @@ cmd_pull() {
   done
 
   echo ""
-  echo -e "${GREEN}Done.${NC} Review changes with: git -C \"$AI_ENV_ROOT\" diff dotfiles/"
+  echo -e "${GREEN}Done.${NC} Review changes: git -C \"$AI_ENV_ROOT\" diff dotfiles/"
 }
 
 cmd_diff() {
@@ -671,7 +680,7 @@ cmd_diff() {
           [[ "$FILE_STRATEGY" == "codex_config" ]] && strategy_label="semantic merge"
           [[ "$FILE_STRATEGY" == "claude_md" ]] && strategy_label="section merge"
           echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: $strategy_label)"
-          diff -u "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+          $DIFF_CMD -u "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" 2>/dev/null | sed 's/^/    /' || true
           has_diff=true
         fi
       elif [[ -f "$CLAUDE_SRC/$f" ]]; then
@@ -694,7 +703,7 @@ cmd_diff() {
       if [[ -f "$CODEX_SRC/$f" && -f "$CODEX_DST/$f" ]]; then
         if ! diff -q "$CODEX_SRC/$f" "$CODEX_DST/$f" >/dev/null 2>&1; then
           echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: semantic merge)"
-          diff -u "$CODEX_SRC/$f" "$CODEX_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+          $DIFF_CMD -u "$CODEX_SRC/$f" "$CODEX_DST/$f" 2>/dev/null | sed 's/^/    /' || true
           has_diff=true
         fi
       elif [[ -f "$CODEX_SRC/$f" ]]; then
