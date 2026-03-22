@@ -589,7 +589,7 @@ cmd_push() {
     echo ""
     if command -v npx &>/dev/null; then
       echo -e "${CYAN}Installing skills from $skills_repo via npx...${NC}"
-      if npx skills install "$skills_repo" --scope personal; then
+      if npx skills add "$skills_repo" --scope personal; then
         echo -e "  ${GREEN}ok${NC}  Skills installed from $skills_repo"
         echo "  Run 'sync.sh pull' to capture installed skills to the repo."
       else
@@ -613,13 +613,13 @@ cmd_skills_push() {
   fi
 
   if ! command -v npx &>/dev/null; then
-    echo -e "${RED}error${NC}  npx not found. Install Node.js to use skills install." >&2
+    echo -e "${RED}error${NC}  npx not found. Install Node.js to use skills add." >&2
     exit 1
   fi
 
   echo -e "${CYAN}Installing skills from $skills_repo...${NC}"
   echo "  (override with: AI_SKILLS_REPO=other/repo sync.sh skills-push)"
-  npx skills install "$skills_repo" --scope personal
+  npx skills add "$skills_repo" --scope personal
   echo ""
   echo -e "${GREEN}Done.${NC} Skills installed to ~/.claude/skills/"
   echo "  Capture to the repo: sync.sh pull && git add dotfiles/ && git commit -m 'chore: sync skills'"
@@ -650,7 +650,7 @@ cmd_pull() {
   done
 
   echo ""
-  echo -e "${GREEN}Done.${NC} Review changes with: git diff dotfiles/"
+  echo -e "${GREEN}Done.${NC} Review changes with: git -C \"$AI_ENV_ROOT\" diff dotfiles/"
 }
 
 cmd_diff() {

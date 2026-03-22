@@ -11,7 +11,7 @@ ai-skills/
         └── SKILL.md
 ```
 
-Each skill is a folder under `skills/` containing a `SKILL.md` with YAML frontmatter (`name`, `description`) and markdown instructions. No other files are required — `npx skills` discovers skills automatically by scanning the `skills/` directory.
+Each skill is a folder under `skills/` containing a `SKILL.md` with YAML frontmatter (`name`, `description`) and markdown instructions. No other files are required — `npx skills` discovers skills automatically by scanning the `skills/` directory. Some skills bundle ancillary files (e.g. `sync.sh`) that the skill's instructions reference.
 
 ## Install a skill globally
 
@@ -51,7 +51,7 @@ Re-run the install command, or — for Claude Code — file changes are picked u
 | [apply-template](skills/apply-template/SKILL.md) | Apply/update ai-env template to any project | Global |
 | [sync-dotfiles](skills/sync-dotfiles/SKILL.md) | Sync user-level AI configs with dotfiles/ | Global |
 | [elevate-skill](skills/elevate-skill/SKILL.md) | Promote local skill to ai-skills repo | Global |
-| [validate](skills/validate/SKILL.md) | Full project validation (typecheck + lint + test) | Project |
+| [validate](skills/validate/SKILL.md) | Full project validation (typecheck + lint + format + test + build (optional)) | Project |
 | [reflect](skills/reflect/SKILL.md) | Post-task review and memory extraction | Project |
 | [catchup](skills/catchup/SKILL.md) | Reconstruct context after /clear or resume | Project |
 | [name-project](skills/name-project/SKILL.md) | Interactive naming sessions for projects, apps, packages, tools, or repos | Project |
