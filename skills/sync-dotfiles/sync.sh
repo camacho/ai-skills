@@ -73,6 +73,14 @@ AI_ENV_ROOT="$(resolve_ai_env_root)" || {
   exit 1
 }
 
+# Detect if we fell back to a temp clone — pull would write to a throwaway dir and lose changes
+if [[ "$AI_ENV_ROOT" == /tmp/ai-env-dotfiles-* ]]; then
+  AI_ENV_TEMP_CLONE=true
+  trap 'rm -rf "$AI_ENV_ROOT"' EXIT
+else
+  AI_ENV_TEMP_CLONE=false
+fi
+
 CLAUDE_SRC="$AI_ENV_ROOT/dotfiles/claude"
 CODEX_SRC="$AI_ENV_ROOT/dotfiles/codex"
 CLAUDE_DST="$HOME/.claude"
@@ -503,7 +511,7 @@ sync_registry_entry() {
       while IFS= read -r -d '' f; do
         local rel="${f#$src_base/$dir/}"
         seen+=("$rel")
-      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
     fi
     # Collect from dst side (files that may not be in src yet)
     if [[ -d "$dst_base/$dir" ]]; then
@@ -513,7 +521,7 @@ sync_registry_entry() {
         local already=false
         for s in "${seen[@]:-}"; do [[ "$s" == "$rel" ]] && already=true && break; done
         [[ "$already" == false ]] && seen+=("$rel")
-      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
     fi
     for rel in "${seen[@]:-}"; do
       if [[ -n "$rel" ]]; then
@@ -536,7 +544,7 @@ expand_entry() {
     if [[ -d "$src_base/$dir" ]]; then
       while IFS= read -r -d '' f; do
         seen+=("$dir/${f#$src_base/$dir/}")
-      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+      done < <(find "$src_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
     fi
     if [[ -d "$dst_base/$dir" ]]; then
       while IFS= read -r -d '' f; do
@@ -544,7 +552,7 @@ expand_entry() {
         local already=false
         for s in "${seen[@]:-}"; do [[ "$s" == "$rel" ]] && already=true && break; done
         [[ "$already" == false ]] && seen+=("$rel")
-      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+      done < <(find "$dst_base/$dir" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
     fi
     for rel in "${seen[@]:-}"; do
       if [[ -n "$rel" ]]; then
@@ -600,7 +608,7 @@ cmd_push() {
 cmd_skills_push() {
   local skills_repo="${AI_SKILLS_REPO-$DEFAULT_SKILLS_REPO}"
   if [[ -z "$skills_repo" ]]; then
-    echo -e "${RED}error${NC}  AI_SKILLS_REPO is explicitly empty and no default set." >&2
+    echo -e "${RED}error${NC}  AI_SKILLS_REPO is explicitly set to empty. Unset it to use the default (${DEFAULT_SKILLS_REPO}), or set it to a non-empty repo slug." >&2
     exit 1
   fi
 
@@ -618,6 +626,13 @@ cmd_skills_push() {
 }
 
 cmd_pull() {
+  if [[ "${AI_ENV_TEMP_CLONE:-false}" == true ]]; then
+    echo -e "${RED}error${NC}  Cannot pull to a temporary clone — changes would be lost on exit." >&2
+    echo "  Set AI_ENV_ROOT to your ai-env checkout and retry:" >&2
+    echo "    AI_ENV_ROOT=~/path/to/ai-env sync.sh pull" >&2
+    exit 1
+  fi
+
   echo -e "${CYAN}Pulling user configs → repo (home wins on conflicts)${NC}"
   echo ""
 
@@ -656,7 +671,7 @@ cmd_diff() {
           [[ "$FILE_STRATEGY" == "codex_config" ]] && strategy_label="semantic merge"
           [[ "$FILE_STRATEGY" == "claude_md" ]] && strategy_label="section merge"
           echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: $strategy_label)"
-          diff --color=auto -u "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+          diff -u "$CLAUDE_SRC/$f" "$CLAUDE_DST/$f" 2>/dev/null | sed 's/^/    /' || true
           has_diff=true
         fi
       elif [[ -f "$CLAUDE_SRC/$f" ]]; then
@@ -679,7 +694,7 @@ cmd_diff() {
       if [[ -f "$CODEX_SRC/$f" && -f "$CODEX_DST/$f" ]]; then
         if ! diff -q "$CODEX_SRC/$f" "$CODEX_DST/$f" >/dev/null 2>&1; then
           echo -e "  ${YELLOW}changed${NC}  $f  (sync strategy: semantic merge)"
-          diff --color=auto -u "$CODEX_SRC/$f" "$CODEX_DST/$f" 2>/dev/null | sed 's/^/    /' || true
+          diff -u "$CODEX_SRC/$f" "$CODEX_DST/$f" 2>/dev/null | sed 's/^/    /' || true
           has_diff=true
         fi
       elif [[ -f "$CODEX_SRC/$f" ]]; then
