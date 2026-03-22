@@ -12,7 +12,7 @@ Post-task review. Do the following in order:
    If a completed plan exists in `ai-workspace/plans/` (Status: complete or Outcomes & Learnings filled in), use it.
    Otherwise, extract learnings from the session directly — git diff, conversation corrections, and patterns discovered.
 
-2. **Extract and classify learnings**: For each learning from Outcomes & Learnings:
+2. **Extract and classify learnings**: For each learning identified in Step 1 (from a plan's Outcomes & Learnings or directly from the session):
    a. **Project-specific** (references project files, paths, configs)
       → Write to ai-workspace/MEMORY.md only
       Example: "This project uses constructor injection via AppContext (see src/di/container.ts)"
