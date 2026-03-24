@@ -109,6 +109,37 @@ For each file in `smart_merge`, read BOTH the template version and the target ve
 - **Preserve:** section comments (lines starting with `#`) and blank line groupings from both files
 - **Order:** target's lines first, then new lines from template appended at the end under a `# ai-env template` comment
 
+### skills-lock.json — Union Merge
+- **Union merge `.skills` object:** combine all skill entries from both template and target. Each entry has `source` (git URL or local path, depending on `sourceType`), `sourceType` (`"git"` or `"local"`), and `computedHash` (SHA-256 integrity hash).
+- **Template wins on conflict:** if the same skill name exists in both, use the template's entry (`source`, `sourceType`, `computedHash` all come from the template)
+- **Never remove:** target skills not in the template are always preserved — projects may have custom skills
+- **Top-level `version`:** keep the higher integer from either side (this is the lockfile schema version, not a skill version — individual skills do not have version fields)
+- **Post-merge:** after writing the merged lockfile, instruct: "Run `npx skills install -a claude-code -a codex` to materialize any newly added skills for both agents"
+
+Example merge logic:
+```
+Template:                                Target:
+{ "version": 1, "skills": {             { "version": 1, "skills": {
+    "validate": {                            "validate": {
+      "source": "git@...ai-skills.git",       "source": "git@...ai-skills.git",
+      "sourceType": "git",                     "sourceType": "git",
+      "computedHash": "abc..."                 "computedHash": "abc..."
+    },                                       },
+    "reflect": {                             "custom-lint": {
+      "source": "git@...ai-skills.git",       "source": "local",
+      "sourceType": "git",                     "sourceType": "local",
+      "computedHash": "def..."                 "computedHash": "xyz..."
+    }                                        }
+}}                                       }}
+
+                    ↓ merged result:
+{ "version": 1, "skills": {
+    "validate":    { ... },  ← kept (same in both)
+    "custom-lint": { ... },  ← preserved (target-only)
+    "reflect":     { ... }   ← added from template
+}}
+```
+
 ### Directories: `.claude/agents/`, `.claude/rules/`, `.claude/skills/`
 - **Recurse** into each directory
 - **New files:** copy from template
