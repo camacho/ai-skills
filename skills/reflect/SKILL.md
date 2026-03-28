@@ -3,6 +3,8 @@ name: reflect
 description: Post-task review. Extract learnings, classify, and write to memory layers.
 ---
 
+Phase gate: COMMIT checkpoint. This skill MUST verify that .branch-context.md learnings are consolidated to MEMORY.md before the agent considers the task complete.
+
 Post-task review. Do the following in order:
 
 0. **Mark reflect timestamp**: Run `date +%s > "${CLAUDE_PROJECT_DIR}/ai-workspace/.last-reflect-ts"` to reset the auto-reflect reminder for this session.
@@ -38,5 +40,14 @@ Post-task review. Do the following in order:
 
 7. **Scratchpad**: Review ai-workspace/scratchpad.md. Mark graduated items
    with strikethrough and pointer to plan/ADR.
+
+8. **Phase gate verification**:
+   - Read `.branch-context.md` if it exists in the worktree or current directory
+   - Extract validated learnings from it
+   - Verify at least 1 line was added to MEMORY.md (diff check)
+   - Clean up worktree: `git worktree remove .worktrees/<name>` (if applicable)
+   - If MEMORY.md was NOT updated and .branch-context.md had content, warn: "MEMORY.md not updated — consolidate learnings before declaring task complete"
+   - If .branch-context.md is empty or doesn't exist, warn: "No .branch-context.md found — no learnings to consolidate" but still complete (don't block)
+   - Gate: Agent cannot declare task complete until this step confirms MEMORY.md updated OR confirms no learnings to consolidate
 
 Output: Summary of what was added to each memory layer, what was pruned, any ADR prompts.
