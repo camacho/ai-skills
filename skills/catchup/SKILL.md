@@ -1,26 +1,66 @@
 ---
 name: catchup
-description: Reconstruct working context after /clear, session resume, or compaction.
+description: "Use after /clear, /compact, session resume, or context loss. Use when branch context is stale or unknown. Use when starting work in an existing worktree."
 ---
 
-Reconstruct my working context. Read the following in order and synthesize a status summary:
+# Catchup — Context Reconstruction
 
-1. **Git state**: Run `git log --oneline -20` and `git status`. Note current branch, recent commits, staged/unstaged changes.
-2. **Active plan**: Read `ai-workspace/plans/` — find the most recently modified non-.done.md plan file. Summarize: objective, current phase, next action, open blockers.
-3. **Project memory**: Read `ai-workspace/MEMORY.md`. Note anything flagged as in-progress or blocking.
-4. **Knowledge graph**: Search Basic Memory vault via MCP for:
-   a. Notes tagged with current project name
-   b. Recent notes (last 7 days) for cross-project patterns
-   c. Notes linked to the current branch name or feature area
-5. **Open PRs**: Run `gh pr list --state open` and `gh pr list --state draft`. Note PRs awaiting review.
-6. **HANDOFF.md** (if present): Read it. Note dispatched task, target agent, expected output.
+**This skill is strictly read-only. Do NOT edit files, create branches, or run write commands.**
 
-Output format:
-- **Branch**: <name> — <what we're building>
-- **Last commit**: <message>
-- **Active plan**: <file> — <current phase> — <next action>
-- **Blockers**: <list or "none">
-- **Open PRs**: <count and titles>
-- **Handoff pending**: <yes/no — detail if yes>
+## 1. Gather data (run all independent steps in parallel)
 
-Then ask: "Ready to continue. What would you like to do?"
+- `git log --format="%h %s (%ar)" -20`, `git status`, and `git worktree list`
+- Read `.branch-context.md` (if exists — check CWD and worktree root). Parse YAML frontmatter: `workflow_step`, `validate_round`/`validate_max`, `review_round`/`review_max`, `plan_review_chunk`/`plan_review_total`/`plan_chunks_approved`
+- Read `ai-workspace/MEMORY.md` — note anything in-progress or blocking
+- Read `HANDOFF.md` (if exists)
+- List `ai-workspace/plans/` (sort by mtime, most recent first) and read the first file that does NOT end in `.done.md` or `.executed.md`
+- Search Basic Memory via MCP for recent entries matching the current branch name. If MCP unavailable, skip silently.
+- **GitHub** — check availability first:
+  ```bash
+  command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1
+  ```
+  If authenticated, run in parallel:
+  ```bash
+  gh pr list --state open
+  gh issue list --state open --limit 15
+  ```
+  If `gh` is unavailable or unauthenticated, note "GitHub CLI unavailable" and skip. Do NOT attempt to install or authenticate.
+
+## 2. Synthesize
+
+Present findings in this format. **Omit sections where the data source was not found** (e.g., no HANDOFF.md, gh unavailable). Always show Loop state and Blockers even when empty — absence is informative:
+
+```
+Branch:         <name> — <what we're building (from plan or branch-context)>
+Worktree:       <path> (or "primary")
+Last commit:    <hash> <message>
+Uncommitted:    <staged/unstaged summary, or "clean">
+Workflow step:  <N> — <step name> (from frontmatter, or inferred)
+Loop state:     validate <round>/<max>, review <round>/<max>
+Active plan:    <file> — <current phase> — <next action>
+Blockers:       <list>
+Open PRs:       <count — titles>
+Open issues:    <count — top 5 titles>
+Handoff:        <detail>
+```
+
+After the summary, **surface blockers and TODO items prominently** — remaining work, failing CI, stale branches, items from memory flagged as blocking. These go above the fold, not as footnotes.
+
+## 3. Suggest next actions
+
+Based on gathered state, suggest 2-3 concrete next actions. Examples:
+- "Resume building — plan X is at step 5 (Build)"
+- "Run /validate — implementation looks complete"
+- "Address blocker: [description]"
+- "Review open PR #N — awaiting action"
+- "Pick up issue #N — in-progress"
+
+End with: "What would you like to do?"
+
+## Failure modes
+
+- **No `.branch-context.md`**: infer workflow step from git state and plan file status. Note: "No branch context — step inferred."
+- **No active plan**: note "No active plan." Do not search `.done.md` files.
+- **On `main` branch**: skip branch-context and plan lookup. Show git state, PRs, issues, and memory only.
+- **Basic Memory MCP unavailable**: skip silently.
+- **`gh` unavailable**: show "GitHub CLI unavailable — PR/issue status unknown."
