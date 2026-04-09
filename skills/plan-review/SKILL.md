@@ -62,12 +62,14 @@ Phase gate: PLAN checkpoint. MUST get APPROVE from all reviewers before proceedi
    |-------|---------|----|----|-----|-------------|
    ```
 
-7. **Gate logic**:
-   - All APPROVE → "Proceed to Build"
-   - Any P0 REVISE → MUST fix before proceeding. List required fixes.
-   - P1 REVISE → should fix. List recommended fixes.
-   - P2 → nice to have, can proceed.
-   - If P0 exists, enter revise-resubmit loop (up to 2 rounds). After 2 rounds, escalate to human.
+7. **Gate logic and review loop** — invoke `/assemble-panel` for panel governance. It provides the policy algebra (gate=P2, cap=3) and handles RETAIN, EXPAND, CONVERGE, and ESCALATE_RECURRING. Do not duplicate those rules here.
+
+   After each round:
+   - All APPROVE with no above-gate findings → "Proceed to Build"
+   - Above-gate findings remain → fix, then re-review per assemble-panel's RETAIN + EXPAND rules
+   - Cap reached with unresolved findings → escalate to human
+
+   If `/assemble-panel` is unavailable, fall back: keep all reviewers with above-gate findings, exit at round 3 or when all clean.
 
 ## Panel Bounds
 - Minimum: technical-editor alone (1 agent, trivial plans)

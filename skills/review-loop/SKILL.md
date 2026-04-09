@@ -36,14 +36,9 @@ For each round (R1..R{cap}):
 - Plans: append `### Deferred Findings (R{N})` section to the plan file.
 - Work: `gh issue create --label review-finding --title "R{N}: <summary>"`. Cap 10/round, 20 total across all rounds. If `gh` unavailable, append to `.branch-context.md`.
 
-**c. Reviewer retention** — zero trust in fixes. A reviewer stays on the panel until they individually return no above-gate findings. Only then are they done.
-- R1: full panel
-- R2+: only reviewers who had above-gate findings in the prior round re-review
-- Reviewers with no above-gate findings are done — they already approved implicitly
+**c–f. Panel governance** — invoke `/assemble-panel` for RETAIN, EXPAND, CONVERGE, and ESCALATE_RECURRING. The policy algebra and reviewer maps live there — do not duplicate them here.
 
-**d. Exit when:** all reviewers have individually confirmed clean (converged), OR cap reached, OR DROP verdict.
-
-**e. Recurring findings:** if same finding appears across 2+ rounds, escalate severity by 1 level. If an escalated finding reaches P0 and remains unfixed at cap, stop and hand off to human.
+If `/assemble-panel` is unavailable, fall back: keep all reviewers with above-gate findings, exit at round 3 or when all clean.
 
 ## 4. Summary
 
