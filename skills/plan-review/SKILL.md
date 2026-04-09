@@ -24,45 +24,25 @@ Phase gate: PLAN checkpoint. MUST get APPROVE from all reviewers before proceedi
    - Full body text
    - Plan scope (count files changed, count body lines)
 
-3. **Auto-assemble the review panel** using these deterministic rules:
+3. **Assemble the review panel** — invoke `/assemble-panel` with scope = plan file. It returns the panel based on file types and keywords in the plan. Pass `--include`/`--exclude` as overrides. Log which agents were selected and why.
 
-   **Tier 1 — Always included:**
-   | Agent | When |
-   |-------|------|
-   | `technical-editor` | EVERY plan review (cannot be excluded) |
+   Codex/Cursor: read `.claude/skills/assemble-panel/SKILL.md` directly and apply the scope/keyword maps inline.
 
-   **Tier 2 — Auto-included by scope:**
-   | Agent | Trigger |
-   |-------|---------|
-   | `code-reviewer` | Plan includes ANY code changes (files ending in `.ts`, `.js`, `.sh`, `.yml`, or paths containing `src/`, `tests/`) |
-   | `architect-reviewer` | Plan is medium/large: >3 files changed, OR plan body >100 lines, OR multiple workflow steps affected |
+   If `/assemble-panel` is unavailable, fall back to `[technical-editor, code-reviewer]` with gate=P2, cap=3.
 
-   **Tier 3 — Auto-included by keyword scanning:**
-   | Agent | Trigger keywords (scan Files to Modify + body) |
-   |-------|-----------------------------------------------|
-   | `codex-specialist` | AGENTS.md, config.toml, sync.sh, skills, dotfiles |
-   | `designer` + `design-reviewer` | component, UI, CSS, design, wireframe, mockup, Figma, layout |
-   | `security-auditor` | auth, credentials, permissions, OWASP, token, secret, vulnerability |
-   | `accessibility-tester` | a11y, WCAG, aria, keyboard, screen reader, focus, semantic HTML |
-   | `fact-checker` | docs, research, ecosystem, reference, guide, educational |
-
-   Log which agents were selected and why.
-
-4. **Apply overrides**: `--include` adds agents, `--exclude` removes (except technical-editor).
-
-5. **Dispatch all selected agents IN PARALLEL** using the Agent tool (single message, multiple Agent tool calls). Each agent receives:
+4. **Dispatch all selected agents IN PARALLEL** using the Agent tool (single message, multiple Agent tool calls). Each agent receives:
    - The plan file content
    - Their specific review mandate
    - Instructions to return: APPROVE / REVISE / DROP with findings tagged P0/P1/P2
 
-6. **Collect verdicts** and synthesize into a summary table:
+5. **Collect verdicts** and synthesize into a summary table:
    ```
    ## Plan Review Summary
    | Agent | Verdict | P0 | P1 | P2 | Key Finding |
    |-------|---------|----|----|-----|-------------|
    ```
 
-7. **Gate logic and review loop** — invoke `/assemble-panel` for panel governance. It provides the policy algebra (gate=P2, cap=3) and handles RETAIN, EXPAND, CONVERGE, and ESCALATE_RECURRING. Do not duplicate those rules here.
+6. **Gate logic and review loop** — invoke `/assemble-panel` for panel governance. It provides the policy algebra (gate=P2, cap=3) and handles RETAIN, EXPAND, CONVERGE, and ESCALATE_RECURRING. Do not duplicate those rules here.
 
    After each round:
    - All APPROVE with no above-gate findings → "Proceed to Build"

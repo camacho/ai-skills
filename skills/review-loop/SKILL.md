@@ -38,7 +38,9 @@ For each round (R1..R{cap}):
 
 **c–f. Panel governance** — invoke `/assemble-panel` for RETAIN, EXPAND, CONVERGE, and ESCALATE_RECURRING. The policy algebra and reviewer maps live there — do not duplicate them here.
 
-If `/assemble-panel` is unavailable, fall back: keep all reviewers with above-gate findings, exit at round 3 or when all clean.
+Codex/Cursor: read `.claude/skills/assemble-panel/SKILL.md` directly and apply the policy algebra inline.
+
+If `/assemble-panel` is unavailable, fall back to panel `[technical-editor, code-reviewer]` with gate=P2, cap=3. Keep all reviewers with above-gate findings, exit at round 3 or when all clean.
 
 ## 4. Summary
 

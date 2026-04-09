@@ -19,7 +19,9 @@ This skill returns (as structured text the caller parses):
 
 If this skill is unavailable, callers fall back to `[technical-editor, code-reviewer]` with gate=P2, cap=3.
 
-## Policy Algebra (frozen — do not modify)
+**Cross-tool note:** Codex/Cursor cannot invoke skills via the Skill tool. Read this file directly (`.claude/skills/assemble-panel/SKILL.md`) and apply the policy algebra inline.
+
+## Policy Algebra (frozen — do not modify, version: 1)
 
 ```
 DEFAULTS:
@@ -61,7 +63,7 @@ Used by `select_by_scope(file_types)`:
 | `.yml`, `.github/workflows/` | code-reviewer, security-auditor |
 | `.sh`, `scripts/`, `hooks/` | code-reviewer, security-auditor |
 | `.md` (plans, ADRs, docs) | architect-reviewer |
-| `*.css`, `*.tsx` with JSX, UI components | design-reviewer, accessibility-tester |
+| `*.css`, `*.tsx`, UI components | design-reviewer, accessibility-tester |
 | `sync.sh`, `AGENTS.md`, `config.toml`, skills | codex-specialist |
 | `*.pem`, `*.key`, secrets patterns | security-auditor |
 
@@ -73,10 +75,11 @@ Used by `select_by_keywords(body)`:
 
 | Keyword / phrase | Reviewer |
 |---|---|
-| "architecture", "ADR", "system design" | architect-reviewer |
+| "architecture", "ADR", "system design", "plan" | architect-reviewer |
 | "security", "auth", "token", "PAT", "OIDC" | security-auditor |
 | "WCAG", "accessibility", "a11y", "aria" | accessibility-tester |
 | "UI", "component", "layout", "design system" | design-reviewer |
+| "docs", "research", "ecosystem", "reference", "educational" | fact-checker |
 | "Codex", "cross-tool", "sync.sh" | codex-specialist |
 
 Keywords are case-insensitive substring matches against the scope body.
