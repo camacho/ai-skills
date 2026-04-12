@@ -1,4 +1,5 @@
 ---
+name: policy-algebra
 description: "Use when a skill, plan, or rule file needs a frozen Starlark governance rule block generated, or an existing frozen block drift-checked against a candidate. Invoke explicitly — not for general rule discussion."
 ---
 
