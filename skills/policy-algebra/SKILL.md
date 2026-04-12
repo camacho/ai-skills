@@ -66,7 +66,7 @@ Group by subject (DEFAULTS, then named functions); keep each function body to 5 
 
 ## Freeze and return
 
-After `/review-loop` APPROVE, capture the exact Starlark text as the FROZEN block. Do **not** canonicalize at freeze time — canonicalization is a compare-time operation only, keeping freeze/return simple and avoiding a mid-run tsx invocation for a no-op benefit.
+After `/review-loop` APPROVE, capture the exact Starlark text as the FROZEN block. Do **not** canonicalize at freeze time — canonicalization is a compare-time operation only, keeping freeze/return simple.
 
 Output format:
 
@@ -87,16 +87,29 @@ If `--write <path>` was supplied, write the raw Starlark block to that path and 
 ## `--verify` flow
 
 1. Read both files.
-2. `extractAlgebra(frozen_content)` → frozen block.
-3. `extractAlgebra(candidate_content)` → candidate block.
-4. `canonicalize(frozen_block)` → frozen canon.
-5. `canonicalize(candidate_block)` → candidate canon.
-6. If equal → print `MATCH`, exit 0. Else → print `DRIFT` + unified diff, exit 1.
+2. Extract first ` ```starlark ` fenced block from each file.
+3. Normalize both blocks (strip trailing whitespace, collapse blank lines, trim edges).
+4. If equal → print `MATCH`, exit 0. Else → print `DRIFT` + unified diff, exit 1.
 
-Shell invocation:
+Use the following bash to verify drift — no external dependencies needed:
 
 ```bash
-pnpm exec tsx .claude/skills/policy-algebra/lib/cli.ts verify <frozen> <candidate>
+# policy-algebra verify — inline, no dependencies
+# Usage: bash verify.sh <frozen_file> <candidate_file>
+normalize() { sed 's/[[:space:]]*$//' | sed '/^$/d'; }
+extract_starlark() { sed -n '/^```starlark/,/^```$/p' "$1" | sed '1d;$d'; }
+
+FROZEN=$(extract_starlark "$1" | normalize)
+CANDIDATE=$(extract_starlark "$2" | normalize)
+
+if [ "$FROZEN" = "$CANDIDATE" ]; then
+  echo "MATCH"
+  exit 0
+else
+  echo "DRIFT"
+  diff <(echo "$FROZEN") <(echo "$CANDIDATE")
+  exit 1
+fi
 ```
 
 ## Multiple-block behavior
@@ -140,8 +153,8 @@ When a file contains multiple ` ```starlark ` blocks, `extractAlgebra` silently 
   Apply their procedures inline rather than invoking them as commands.
   The drafting, freeze, and `--verify` logic in this SKILL.md is
   tool-agnostic and works identically for Claude Code, Codex, and Cursor.
-- **CLI (`--verify` path)** is runtime-agnostic: any shell with `pnpm`
-  and Node 24 can invoke `pnpm exec tsx .claude/skills/policy-algebra/lib/cli.ts`.
+- **CLI (`--verify` path)** is runtime-agnostic: use the inline bash snippet
+  in the `--verify` section above — no Node or pnpm required.
 
 ## Governance
 
